@@ -1,0 +1,2 @@
+TELEGRAM_BOT_TOKEN = "8185987434:AAEPy_lfozVG5jKdJAybCtzW43CSMGPOPZY"
+GOOGLE_API_URL =https://script.google.com/macros/s/AKfycbwjgMiYgu39MmhSrg7mkb4BQtV72PZdbX6m07-5HieGuP6K4RAzTMFl-cRQ2GS4S9R2/exec

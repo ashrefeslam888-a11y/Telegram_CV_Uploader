@@ -1,0 +1,171 @@
+import telegram
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, ContextTypes
+import requests
+import smtplib
+from email.mime.text import MIMEText
+from datetime import datetime
+import os
+
+# =========================================================
+# ====== المتغيرات الثابتة (Final Configuration) ======
+# =========================================================
+TELEGRAM_BOT_TOKEN = "8185987434:AAEPy_lfozVG5jKdJAybCtzW43CSMGPOPZY"
+GOOGLE_API_URL = "https://script.google.com/macros/s/AKfycbz9BlKaCGsXndSPpabYM4mc3ldhZLd2nQJvi-vJQdH09mL_428sIcsfv8fuKn5ljJOEQw/exec" 
+
+# ====== إعدادات الإشعارات ======
+# يجب أن يكون البوت عضوًا في هذا الجروب. (الرقم السالب يدل على Channel/Supergroup ID)
+HR_GROUP_CHAT_ID = -1001550993072 # تم تحويل الرابط الخاص إلى ID لجروب الإدارة
+HR_EMAIL_NOTIFY = "ashref.eslam888@gmail.com" # إيميل الـ HR/الإدارة
+EMAIL_SENDER = "YOUR_SENDER_EMAIL@gmail.com" # إيميل الإرسال الفعلي (يتطلب كلمة مرور تطبيق)
+EMAIL_PASSWORD = "YOUR_APP_PASSWORD" # كلمة مرور التطبيق (وليس كلمة مرور الإيميل العادية)
+
+# ====== تعريف حالات المحادثة ======
+REC_NAME, CAND_NAME, FILE_UPLOAD = range(3)
+
+# =========================================================
+# دوال الإشعارات
+# =========================================================
+
+async def send_telegram_notification(context: ContextTypes.DEFAULT_TYPE, message: str):
+    """إرسال إشعار إلى جروب الإدارة على تليجرام."""
+    try:
+        await context.bot.send_message(chat_id=HR_GROUP_CHAT_ID, text=message, parse_mode='Markdown')
+    except Exception as e:
+        print(f"Error sending Telegram notification: {e}")
+
+def send_email_notification(subject: str, body: str, to_email: str):
+    """إرسال إشعار عبر الإيميل (يتطلب إعداد Gmail SMTP)."""
+    try:
+        msg = MIMEText(body, 'html', 'utf-8')
+        msg['Subject'] = subject
+        msg['From'] = EMAIL_SENDER
+        msg['To'] = to_email
+
+        # استخدام SMTP الخاص بـ Gmail (تأكد من تفعيل "كلمة مرور التطبيق" لحسابك)
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_SENDER, [to_email], msg.as_string())
+        return True
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        return False
+
+# =========================================================
+# دوال الاتصال بـ Google API (للتخزين والتحقق)
+# =========================================================
+
+# (دالة api_check_duplicate و api_save_data كما هي لم يتم تغييرها)
+def api_check_duplicate(candidate_name, file_name):
+    # ... (الكود كما هو) ...
+    try:
+        payload = {
+            "action": "Check_Duplicate",
+            "candidate_name": candidate_name,
+            "file_name": file_name
+        }
+        response = requests.post(GOOGLE_API_URL, json=payload)
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result.get('is_duplicate', True)
+        else:
+            print(f"API Error: Status {response.status_code}")
+            return True
+    except Exception as e:
+        print(f"Exception in API Check: {e}")
+        return True
+
+def api_save_data(data):
+    # ... (الكود كما هو) ...
+    try:
+        payload = {
+            "action": "Save_Data",
+            "recruiter_name": data.get('recruiter_name'),
+            "candidate_name": data.get('candidate_name'),
+            "file_name": data.get('file_name'),
+            "file_link": data.get('file_link'),
+            "status": data.get('status')
+        }
+        response = requests.post(GOOGLE_API_URL, json=payload)
+        
+        if response.status_code == 200:
+            return response.json().get('status') == 'Success'
+        return False
+    except Exception as e:
+        print(f"Exception in API Save: {e}")
+        return False
+
+# =========================================================
+# دوال معالجة المحادثات (Handlers)
+# =========================================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # ... (الكود كما هو) ...
+    context.user_data['recruiter_name'] = None
+    context.user_data['candidate_name'] = None
+    welcome_msg = "أهلاً بك أيها الريكروتر 👋.\n" + \
+                  "لإضافة سيرة ذاتية جديدة، من فضلك أرسل لي **اسمك** (Recruiter Name)."
+    await update.message.reply_text(welcome_msg, parse_mode='Markdown')
+    return REC_NAME
+
+async def get_recruiter_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # ... (الكود كما هو) ...
+    recruiter_name = update.message.text
+    context.user_data['recruiter_name'] = recruiter_name
+    await update.message.reply_text(f"شكراً لك يا **{recruiter_name}**.\n" +
+                                     "الآن، من فضلك أرسل لي **اسم المرشح** كاملاً (Candidate Name).", 
+                                     parse_mode='Markdown')
+    return CAND_NAME
+
+async def get_candidate_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # ... (الكود كما هو) ...
+    candidate_name = update.message.text
+    context.user_data['candidate_name'] = candidate_name
+    await update.message.reply_text(f"ممتاز! تم تسجيل اسم المرشح: **{candidate_name}**.\n" +
+                                     "الخطوة الأخيرة: **أرجو رفع ملف السيرة الذاتية (CV) بصيغة PDF أو DOCX.**", 
+                                     parse_mode='Markdown')
+    return FILE_UPLOAD
+
+async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """يستقبل الملف، يخزنه، ويرسل الإشعارات."""
+    
+    # التحقق من الملفات والبيانات
+    if not update.message.document:
+        await update.message.reply_text("عذراً، أرجو رفع **ملف** CV بصيغة PDF أو DOCX.")
+        return FILE_UPLOAD
+
+    file_document = update.message.document
+    if 'pdf' not in file_document.mime_type and 'word' not in file_document.mime_type:
+        await update.message.reply_text("عذراً، نحن نقبل فقط ملفات PDF أو DOCX.")
+        return FILE_UPLOAD
+        
+    await update.message.reply_text("جاري معالجة السيرة الذاتية... يرجى الانتظار قليلاً.")
+    
+    file_id = file_document.file_id
+    file_obj = await context.bot.get_file(file_id)
+    file_link = file_obj.file_path 
+    
+    recruiter_name = context.user_data.get('recruiter_name', 'N/A')
+    candidate_name = context.user_data.get('candidate_name', 'N/A')
+    file_name = file_document.file_name
+    
+    # التحقق والتخزين
+    is_duplicate = api_check_duplicate(candidate_name, file_name)
+    status = "Duplicate" if is_duplicate else "New"
+    
+    data_to_save = {
+        'recruiter_name': recruiter_name,
+        'candidate_name': candidate_name,
+        'file_name': file_name,
+        'file_link': file_link,
+        'status': status
+    }
+    
+    save_success = api_save_data(data_to_save)
+    
+    # تحديد الرد والإشعارات
+    if save_success:
+        if status == "New":
+            response = "✅ **Successfully Processed** / تمت معالجة السيرة الذاتية بنجاح.\n" \
+                       f"شكراً لك يا {recruiter_name}، تم تسجيل CV المرشح {candidate_name}."
